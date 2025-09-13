@@ -20,6 +20,11 @@ In real-world projects, I’ve seen operations go from **minutes down to millise
 
 ---
 
+## 📋 Demo Description
+This demo simulates a real-world financial transaction collector used to prepare foreign exchange declarations. It includes multiple entities such as CompanyAccount, DestinationAccount, Movement, Currency, ExchangeRate, FxDeclaration, and others. These entities are connected through various relationship types including one-to-many, many-to-one, many-to-many, and one-to-one. The demo illustrates how careless use of ORM mappings in such complex relational models can lead to significant performance problems, including N+1 queries, Cartesian products, heavy fetch joins, and missing indexes. The project then contrasts these issues with optimized approaches using native SQL queries, proper indexing, batch fetching, projections, and window functions to improve performance dramatically.
+
+---
+
 ## 🛠️ Tech Stack
 - **Java 17**
 - **Spring Boot 3.x**
@@ -31,10 +36,11 @@ In real-world projects, I’ve seen operations go from **minutes down to millise
 ---
 
 ## 📌 Scenarios
-1. **Slow ORM query** – Using default JPA/Hibernate mapping.  
-2. **Optimized native SQL** – Hand-crafted SQL + index.  
+1. **Unoptimized ORM query** – Using default JPA/Hibernate mapping carelessly, highlighting N+1 issues, heavy fetch joins, etc.  
+2. **Optimized ORM query** – Leveraging framework features (e.g., projections, fetch strategies, batch size, indexes) to make ORM queries more efficient.  
+3. **Optimized native SQL** – Using hand-crafted SQL queries, indexes, and database-level tuning.  
 
-Each scenario will be benchmarked and compared.
+This structure shows that ORMs are valuable when used consciously and optimized, and that the comparison is fair against optimized SQL.
 
 ---
 
