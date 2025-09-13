@@ -51,10 +51,13 @@ git clone https://github.com/your-username/orm-vs-optimized-sql.git
 cd orm-vs-optimized-sql
 ```
 
-2. Start PostgreSQL (Docker recommended):
+2. Start PostgreSQL using `docker-compose` (recommended):
 ```bash
-docker run --name pg-perf -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=performance_demo -p 5432:5432 -d postgres:15-alpine
+docker compose up -d
+# or, if your environment uses the old syntax:
+# docker-compose up -d
 ```
+This will start PostgreSQL with database `performance_demo`, user `postgres`, password `postgres`, on port 5432.
 
 3. Update application.yml with your DB credentials.
 4. Run the Spring Boot application:
