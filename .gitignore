@@ -1,0 +1,50 @@
+### Build ###
+.gradle/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+
+### Eclipse ###
+.classpath
+.project
+.settings/
+
+### VS Code ###
+.vscode/
+
+### Logs ###
+*.log
+logs/
+*.out
+*.err
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Java ###
+*.class
+*.jar
+*.war
+*.ear
+
+### Spring Boot ###
+/target/
+!/src/main/resources/
+!/src/test/resources/
+
+### Environment ###
+.env
+*.local
+
+### Database files ###
+*.db
+*.sqlite
