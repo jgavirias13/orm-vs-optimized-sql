@@ -1,7 +1,7 @@
 -- =========================
 -- Core catalogs
 -- =========================
-create table company
+create table if not exists company
 (
     id         bigserial primary key,
     legal_name varchar(120) not null,
@@ -10,7 +10,7 @@ create table company
     created_at timestamp    not null default now()
 );
 
-create table company_account
+create table if not exists company_account
 (
     id             bigserial primary key,
     company_id     bigint      not null references company (id),
@@ -22,9 +22,9 @@ create table company_account
     created_at     timestamp   not null default now(),
     constraint uq_company_account unique (company_id, account_number)
 );
-create index idx_company_account_company on company_account (company_id);
+create index if not exists idx_company_account_company on company_account (company_id);
 
-create table counterparty
+create table if not exists counterparty
 (
     id           bigserial primary key,
     display_name varchar(120) not null,
@@ -34,7 +34,7 @@ create table counterparty
     created_at   timestamp    not null default now()
 );
 
-create table counterparty_account
+create table if not exists counterparty_account
 (
     id              bigserial primary key,
     counterparty_id bigint    not null references counterparty (id),
@@ -45,15 +45,15 @@ create table counterparty_account
     created_at      timestamp not null default now(),
     constraint uq_counterparty_account unique (counterparty_id, account_number)
 );
-create index idx_cp_account_counterparty on counterparty_account (counterparty_id);
+create index if not exists idx_cp_account_counterparty on counterparty_account (counterparty_id);
 
-create table currency
+create table if not exists currency
 (
     code varchar(3) primary key,
     name varchar(50) not null
 );
 
-create table exchange_rate
+create table if not exists exchange_rate
 (
     id            bigserial primary key,
     currency_code varchar(3)     not null references currency (code),
@@ -62,13 +62,11 @@ create table exchange_rate
     rate          numeric(18, 6) not null,
     created_at    timestamp      not null default now()
 );
-create index idx_rate_cc_date on exchange_rate (currency_code, valid_date);
-create index idx_rate_cc_date_version on exchange_rate (currency_code, valid_date, version desc);
 
 -- =========================
 -- Movements + tags
 -- =========================
-create table movement
+create table if not exists movement
 (
     id                      bigserial primary key,
     company_account_id      bigint         not null references company_account (id),
@@ -79,15 +77,15 @@ create table movement
     description             varchar(255),
     created_at              timestamp      not null default now()
 );
-create index idx_mv_company_booked on movement (company_account_id, booked_at);
+create index if not exists idx_mv_company_booked on movement (company_account_id, booked_at);
 
-create table movement_tag
+create table if not exists movement_tag
 (
     id   bigserial primary key,
     name varchar(40) unique not null
 );
 
-create table movement_tags
+create table if not exists movement_tags
 (
     movement_id bigint not null references movement (id),
     tag_id      bigint not null references movement_tag (id),
@@ -97,7 +95,7 @@ create table movement_tags
 -- =========================
 -- FX declaration
 -- =========================
-create table fx_declaration
+create table if not exists fx_declaration
 (
     id                 bigserial primary key,
     company_account_id bigint      not null references company_account (id),
@@ -108,7 +106,7 @@ create table fx_declaration
     constraint uq_fx_decl unique (company_account_id, period_year, period_month)
 );
 
-create table fx_declaration_summary
+create table if not exists fx_declaration_summary
 (
     id                bigserial primary key,
     fx_declaration_id bigint    not null unique references fx_declaration (id),
