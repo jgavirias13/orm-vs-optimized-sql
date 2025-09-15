@@ -6,7 +6,7 @@ create table if not exists company
     id         bigserial primary key,
     legal_name varchar(120) not null,
     tax_id     varchar(32)  not null unique,
-    country    char(2),
+    country    varchar(2),
     created_at timestamp    not null default now()
 );
 
@@ -18,7 +18,7 @@ create table if not exists company_account
     iban           varchar(40),
     bank_name      varchar(80),
     currency_code  varchar(3),
-    country        char(2),
+    country        varchar(2),
     created_at     timestamp   not null default now(),
     constraint uq_company_account unique (company_id, account_number)
 );
@@ -29,7 +29,7 @@ create table if not exists counterparty
     id           bigserial primary key,
     display_name varchar(120) not null,
     tax_id       varchar(32) unique,
-    country      char(2),
+    country      varchar(2),
     kyc_status   varchar(20),
     created_at   timestamp    not null default now()
 );
@@ -41,7 +41,7 @@ create table if not exists counterparty_account
     account_number  varchar(40),
     iban            varchar(40),
     bank_name       varchar(80),
-    country         char(2),
+    country         varchar(2),
     created_at      timestamp not null default now(),
     constraint uq_counterparty_account unique (counterparty_id, account_number)
 );

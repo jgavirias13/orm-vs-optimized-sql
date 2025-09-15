@@ -1,4 +1,5 @@
 -- V2__seed.sql
+select setseed(0.42); -- make random() deterministic for reproducible seeds
 
 -- =========================
 -- currencies
@@ -44,19 +45,29 @@ from counterparty cp
 on conflict (counterparty_id, account_number) do nothing;
 
 -- =========================
--- Taxes per day
+-- Exchange rates per day (COP report currency)
 -- =========================
+-- Fixed month window for stable baselines (change here if you want another month)
+with period as (
+    select make_date(2025, 8, 1) as start_date, make_date(2025, 9, 1) as end_date
+),
+days as (
+    select generate_series((select start_date from period),
+                           (select end_date   from period) - interval '1 day',
+                           interval '1 day')::date as d
+)
 insert into exchange_rate(currency_code, valid_date, version, rate)
 select cc,
-       d::date                         as valid_date,
-       v                               as version,
+       d                as valid_date,
+       v                as version,
        case cc
-           when 'USD' then 1.00 + (v - 1) * 0.01
-           when 'EUR' then 1.10 + (v - 1) * 0.01
-           else 4000 + (v - 1) * 5 end as rate
+           when 'USD' then 4200 + (date_part('day', d)::int * 3) + (v-1) * 5
+           when 'EUR' then 4600 + (date_part('day', d)::int * 4) + (v-1) * 6
+           else 1.00
+       end::numeric(18,6) as rate
 from (values ('USD'), ('EUR'), ('COP')) as c(cc)
-         cross join generate_series(current_date - interval '60 day', current_date, interval '1 day') d
-         cross join generate_series(1, 2) v;
+cross join days
+cross join generate_series(1, 2) v;
 
 -- =========================
 -- Tags
@@ -70,16 +81,30 @@ on conflict (name) do nothing;
 -- =========================
 -- Movements
 -- =========================
-with params as (select 200000::int as total_rows)
-insert
-into movement(company_account_id, counterparty_account_id, currency_code, amount, booked_at, description)
+-- Use the same period as exchange rates so reports align to one month
+with period as (
+    select make_date(2025, 8, 1) as start_date, make_date(2025, 9, 1) as end_date
+),
+params as (select 200000::int as total_rows),
+rands as (
+    select generate_series(1, (select total_rows from params)) as i,
+           random() as r1,
+           random() as r2
+)
+insert into movement(company_account_id, counterparty_account_id, currency_code, amount, booked_at, description)
 select (select id from company_account order by random() limit 1)      as company_account_id,
        (select id from counterparty_account order by random() limit 1) as counterparty_account_id,
-       (array ['USD','EUR','COP'])[1 + floor(random() * 3)]::text      as currency_code,
+       case
+         when r1 < 0.50 then 'COP'        -- ~50%
+         when r1 < 0.80 then 'USD'        -- ~30%
+         else               'EUR'         -- ~20%
+       end::text as currency_code,
        round((random() * 10000)::numeric, 2)                           as amount,
-       (current_timestamp - (random() * 60 || ' days')::interval)      as booked_at,
+       (select (select start_date from period) +
+               (floor(r2 * (((select end_date from period) - (select start_date from period)) * 86400))::int || ' seconds')::interval
+       ) as booked_at,
        'seed movement'                                                 as description
-from params, generate_series(1, (select total_rows from params));
+from rands;
 
 insert into movement_tags(movement_id, tag_id)
 select m.id, t.id
