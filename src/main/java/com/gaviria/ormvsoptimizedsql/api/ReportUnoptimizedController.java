@@ -1,5 +1,6 @@
 package com.gaviria.ormvsoptimizedsql.api;
 
+import com.gaviria.ormvsoptimizedsql.api.dto.CompanyConsolidatedSummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.service.ReportUnoptimizedService;
 import lombok.RequiredArgsConstructor;
@@ -22,5 +23,14 @@ public class ReportUnoptimizedController {
             @RequestParam int month
     ) {
         return service.monthlySummaryPerAccount(companyId, year, month);
+    }
+
+    @GetMapping("/consolidated")
+    public CompanyConsolidatedSummaryDTO consolidated(
+            @RequestParam Long companyId,
+            @RequestParam int year,
+            @RequestParam int month
+    ) {
+        return service.consolidatedMonthlySummary(companyId, year, month);
     }
 }
