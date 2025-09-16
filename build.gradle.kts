@@ -37,6 +37,7 @@ dependencies {
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
    implementation(kotlin("stdlib-jdk8"))
+   implementation("com.github.gavlyukovskiy:datasource-proxy-spring-boot-starter:1.12.0")
 }
 
 tasks.withType<Test> {
