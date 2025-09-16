@@ -1,4 +1,10 @@
 package com.gaviria.ormvsoptimizedsql.api.dto;
 
-public class CurrencyTotalDTO {
+import java.math.BigDecimal;
+
+public record CurrencyTotalDTO(
+        String currency,
+        BigDecimal totalOriginal,
+        BigDecimal totalCOP
+) {
 }

@@ -1,4 +1,11 @@
 package com.gaviria.ormvsoptimizedsql.api.dto;
 
-public class AccountMonthlySummaryDTO {
+import java.math.BigDecimal;
+import java.util.List;
+
+public record AccountMonthlySummaryDTO(
+        Long accountId,
+        List<CurrencyTotalDTO> byCurrency,
+        BigDecimal grandTotalCOP
+) {
 }
