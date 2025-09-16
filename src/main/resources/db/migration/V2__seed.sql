@@ -78,30 +78,44 @@ values ('PAYROLL'),
        ('TAX')
 on conflict (name) do nothing;
 
--- =========================
--- Movements
--- =========================
--- Use the same period as exchange rates so reports align to one month
 with period as (
     select make_date(2025, 8, 1) as start_date, make_date(2025, 9, 1) as end_date
 ),
-params as (select 200000::int as total_rows),
+-- deterministic enumerations of accounts to avoid picking the same one for all rows
+acc as (
+    select id, row_number() over(order by id) as rn from company_account
+), acc_cnt as (
+    select count(*)::int as cnt from acc
+),
+cpa as (
+    select id, row_number() over(order by id) as rn from counterparty_account
+), cpa_cnt as (
+    select count(*)::int as cnt from cpa
+),
+params as (select 500000::int as total_rows),
 rands as (
     select generate_series(1, (select total_rows from params)) as i,
            random() as r1,
            random() as r2
 )
 insert into movement(company_account_id, counterparty_account_id, currency_code, amount, booked_at, description)
-select (select id from company_account order by random() limit 1)      as company_account_id,
-       (select id from counterparty_account order by random() limit 1) as counterparty_account_id,
+select
+       -- Distribute uniformly across company accounts using modulo on i
+       (select a.id from acc a where a.rn = ((i - 1) % (select cnt from acc_cnt)) + 1) as company_account_id,
+       -- Distribute across counterparty accounts with a phase shift so it doesn't align with company accounts
+       (select p.id from cpa p where p.rn = ((i * 7 - 1) % (select cnt from cpa_cnt)) + 1)         as counterparty_account_id,
        case
          when r1 < 0.50 then 'COP'        -- ~50%
          when r1 < 0.80 then 'USD'        -- ~30%
          else               'EUR'         -- ~20%
        end::text as currency_code,
        round((random() * 10000)::numeric, 2)                           as amount,
-       (select (select start_date from period) +
-               (floor(r2 * (((select end_date from period) - (select start_date from period)) * 86400))::int || ' seconds')::interval
+       (
+         (select start_date from period)
+         + (
+             floor((((select end_date from period) - (select start_date from period)) * 86400) * r2)::int
+               || ' seconds'
+           )::interval
        ) as booked_at,
        'seed movement'                                                 as description
 from rands;
