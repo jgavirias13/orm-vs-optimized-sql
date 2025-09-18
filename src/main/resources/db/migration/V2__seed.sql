@@ -120,14 +120,21 @@ select
        'seed movement'                                                 as description
 from rands;
 
+-- Assign 0–3 tags per movement (deterministic per movement to avoid same tag/count across all rows)
 insert into movement_tags(movement_id, tag_id)
-select m.id, t.id
+select m.id, mt.id
 from movement m
-         join lateral (
-    select id
-    from movement_tag
-    where random() < 0.3
-    order by random()
-    limit 1
-    ) t on true
-where random() < 0.3;
+join lateral (
+  select t.id
+  from movement_tag t
+  -- deterministic pseudo-random order per movement using hash of (movement_id, tag_id)
+  order by md5(m.id::text || '-' || t.id::text)
+  limit (
+    case
+      when (m.id % 100) < 10 then 0   -- 10% no tags
+      when (m.id % 100) < 75 then 1   -- 65% 1 tag
+      when (m.id % 100) < 97 then 2   -- 22% 2 tags
+      else 3                           -- 3% 3 tags
+    end
+  )
+) mt on true;

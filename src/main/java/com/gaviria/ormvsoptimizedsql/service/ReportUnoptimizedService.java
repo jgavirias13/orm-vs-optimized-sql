@@ -9,6 +9,7 @@ import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import com.gaviria.ormvsoptimizedsql.domain.ExchangeRate;
 import com.gaviria.ormvsoptimizedsql.domain.Movement;
+import com.gaviria.ormvsoptimizedsql.domain.MovementTag;
 import com.gaviria.ormvsoptimizedsql.repo.CompanyAccountRepository;
 import com.gaviria.ormvsoptimizedsql.repo.ExchangeRateRepository;
 import com.gaviria.ormvsoptimizedsql.repo.MovementRepository;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,8 +28,10 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+@Transactional(readOnly = true)
 @Service
 @RequiredArgsConstructor
 public class ReportUnoptimizedService {
@@ -238,7 +242,9 @@ public class ReportUnoptimizedService {
         var from = LocalDate.of(year, month, 1).atStartOfDay();
         var to = from.plusMonths(1);
 
-        var pg = movementRepository.findByCompanyAccountAndPeriod(companyAccountId, from, to, PageRequest.of(page, size));
+        var pg = movementRepository.findByCompanyAccountAndPeriod(
+                companyAccountId, from, to, PageRequest.of(page, size)
+        );
 
         var content = pg.getContent().stream().map(m -> {
             var ccy = m.getCurrency().getCode();
@@ -255,6 +261,13 @@ public class ReportUnoptimizedService {
             var cop = original.multiply(rate);
 
             var cp = m.getCounterpartyAccount().getCounterparty().getDisplayName();
+
+            var tags = m.getTags() != null
+                    ? m.getTags().stream()
+                    .map(MovementTag::getName)
+                    .collect(Collectors.toSet())
+                    : Set.<String>of();
+
             return new DeclarationLineDTO(
                     m.getBookedAt().toLocalDate(),
                     cp,
@@ -262,7 +275,8 @@ public class ReportUnoptimizedService {
                     original,
                     rate,
                     cop,
-                    m.getDescription()
+                    m.getDescription(),
+                    tags
             );
         }).toList();
 
