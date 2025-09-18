@@ -5,6 +5,7 @@ import com.gaviria.ormvsoptimizedsql.api.dto.AccountMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyConsolidatedSummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import com.gaviria.ormvsoptimizedsql.domain.ExchangeRate;
 import com.gaviria.ormvsoptimizedsql.domain.Movement;
@@ -13,6 +14,7 @@ import com.gaviria.ormvsoptimizedsql.repo.ExchangeRateRepository;
 import com.gaviria.ormvsoptimizedsql.repo.MovementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -230,5 +232,40 @@ public class ReportUnoptimizedService {
                 .sorted(Comparator.comparing(TopCounterpartyDTO::totalCOP).reversed())
                 .limit(topN)
                 .toList();
+    }
+
+    public Page<DeclarationLineDTO> declarationLines(Long companyAccountId, int year, int month, int page, int size) {
+        var from = LocalDate.of(year, month, 1).atStartOfDay();
+        var to = from.plusMonths(1);
+
+        var pg = movementRepository.findByCompanyAccountAndPeriod(companyAccountId, from, to, PageRequest.of(page, size));
+
+        var content = pg.getContent().stream().map(m -> {
+            var ccy = m.getCurrency().getCode();
+            var original = m.getAmount();
+
+            BigDecimal rate = BigDecimal.ONE;
+            if (!"COP".equalsIgnoreCase(ccy)) {
+                var day = m.getBookedAt().toLocalDate();
+                rate = exchangeRateRepository
+                        .findTopByCurrency_CodeAndValidDateOrderByVersionDesc(ccy, day)
+                        .map(ExchangeRate::getRate)
+                        .orElse(BigDecimal.ONE);
+            }
+            var cop = original.multiply(rate);
+
+            var cp = m.getCounterpartyAccount().getCounterparty().getDisplayName();
+            return new DeclarationLineDTO(
+                    m.getBookedAt().toLocalDate(),
+                    cp,
+                    ccy,
+                    original,
+                    rate,
+                    cop,
+                    m.getDescription()
+            );
+        }).toList();
+
+        return new PageImpl<>(content, pg.getPageable(), pg.getTotalElements());
     }
 }
