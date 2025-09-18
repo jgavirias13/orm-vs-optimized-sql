@@ -1,0 +1,162 @@
+{
+  "info": {
+    "name": "ORM Unoptimized Scenarios",
+    "_postman_id": "f13a43a9-0000-42a0-aaaa-111111111111",
+    "description": "Scenarios A, B, C y D validations",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Scenario A - Summary",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/report/orm/unoptimized/summary?companyId=1&year=2025&month=8",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "report",
+            "orm",
+            "unoptimized",
+            "summary"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "1"
+            },
+            {
+              "key": "year",
+              "value": "2025"
+            },
+            {
+              "key": "month",
+              "value": "8"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escenario B - Top Counterparties",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/report/orm/unoptimized/top-counterparties?companyId=1&year=2025&month=8&topN=10",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "report",
+            "orm",
+            "unoptimized",
+            "top-counterparties"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "1"
+            },
+            {
+              "key": "year",
+              "value": "2025"
+            },
+            {
+              "key": "month",
+              "value": "8"
+            },
+            {
+              "key": "topN",
+              "value": "10"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escenario C - Declaration Lines",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/report/orm/unoptimized/declaration-lines?companyAccountId=1&year=2025&month=8&page=0&size=100",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "report",
+            "orm",
+            "unoptimized",
+            "declaration-lines"
+          ],
+          "query": [
+            {
+              "key": "companyAccountId",
+              "value": "1"
+            },
+            {
+              "key": "year",
+              "value": "2025"
+            },
+            {
+              "key": "month",
+              "value": "8"
+            },
+            {
+              "key": "page",
+              "value": "0"
+            },
+            {
+              "key": "size",
+              "value": "100"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Escenario D - Consolidated",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/report/orm/unoptimized/consolidated?companyId=1&year=2025&month=8",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "report",
+            "orm",
+            "unoptimized",
+            "consolidated"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "1"
+            },
+            {
+              "key": "year",
+              "value": "2025"
+            },
+            {
+              "key": "month",
+              "value": "8"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
