@@ -5,6 +5,7 @@ import com.gaviria.ormvsoptimizedsql.api.dto.AccountMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyConsolidatedSummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import com.gaviria.ormvsoptimizedsql.domain.ExchangeRate;
 import com.gaviria.ormvsoptimizedsql.domain.Movement;
 import com.gaviria.ormvsoptimizedsql.repo.CompanyAccountRepository;
@@ -19,6 +20,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -182,5 +184,51 @@ public class ReportUnoptimizedService {
                 byCurrencyList,
                 grandTotalCop
         );
+    }
+
+    public List<TopCounterpartyDTO> topCounterparties(Long companyId, int year, int month, int topN) {
+        var accounts = companyAccountRepository.findCompanyAccountByCompany_Id(companyId);
+
+        var start = LocalDate.of(year, month, 1).atStartOfDay();
+        var end = start.plusMonths(1);
+
+        Map<String, BigDecimal> totalsCop = new HashMap<>();
+        Map<String, Long> txCounts = new HashMap<>();
+
+        for (var acc : accounts) {
+            int page = 0, size = 1000;
+            while (true) {
+                var pageMov = movementRepository.findByCompanyAccountAndPeriod(acc.getId(), start, end, PageRequest.of(page, size));
+                if (pageMov.isEmpty()) break;
+
+                for (var m : pageMov.getContent()) {
+                    var ccy = m.getCurrency().getCode();
+                    var original = m.getAmount();
+
+                    BigDecimal rate = BigDecimal.ONE;
+                    if (!"COP".equalsIgnoreCase(ccy)) {
+                        var day = m.getBookedAt().toLocalDate();
+                        rate = exchangeRateRepository
+                                .findTopByCurrency_CodeAndValidDateOrderByVersionDesc(ccy, day)
+                                .map(ExchangeRate::getRate)
+                                .orElse(BigDecimal.ONE);
+                    }
+                    var cop = original.multiply(rate);
+
+                    var cpName = m.getCounterpartyAccount().getCounterparty().getDisplayName();
+                    totalsCop.merge(cpName, cop, BigDecimal::add);
+                    txCounts.merge(cpName, 1L, Long::sum);
+                }
+
+                if (!pageMov.hasNext()) break;
+                page++;
+            }
+        }
+
+        return totalsCop.entrySet().stream()
+                .map(e -> new TopCounterpartyDTO(e.getKey(), e.getValue(), txCounts.getOrDefault(e.getKey(), 0L)))
+                .sorted(Comparator.comparing(TopCounterpartyDTO::totalCOP).reversed())
+                .limit(topN)
+                .toList();
     }
 }
