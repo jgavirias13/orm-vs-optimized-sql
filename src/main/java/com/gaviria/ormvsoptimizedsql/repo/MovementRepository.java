@@ -1,7 +1,7 @@
 package com.gaviria.ormvsoptimizedsql.repo;
 
 import com.gaviria.ormvsoptimizedsql.domain.Movement;
-import com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDay;
+import com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDayView;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -27,18 +27,17 @@ public interface MovementRepository extends JpaRepository<Movement, Long> {
     );
 
     @Query("""
-              select new com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDay(
-                  m.companyAccount.id,
-                  m.currency.code,
-                  function('date', m.bookedAt),
-                  sum(m.amount)
-              )
+              select
+                m.companyAccount.id          as accountId,
+                m.currency.code              as currency,
+                function('date', m.bookedAt) as day,
+                sum(m.amount)                as totalAmount
               from Movement m
               where m.companyAccount.company.id = :companyId
                 and m.bookedAt >= :from and m.bookedAt < :to
               group by m.companyAccount.id, m.currency.code, function('date', m.bookedAt)
             """)
-    List<AggMovementDay> aggregateByAccountCurrencyDay(
+    List<AggMovementDayView> aggregateByAccountCurrencyDay(
             @Param("companyId") Long companyId,
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to

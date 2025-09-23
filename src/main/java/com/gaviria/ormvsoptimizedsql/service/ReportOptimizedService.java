@@ -5,7 +5,7 @@ import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
 import com.gaviria.ormvsoptimizedsql.repo.ExchangeRateRepository;
 import com.gaviria.ormvsoptimizedsql.repo.MovementRepository;
-import com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDay;
+import com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDayView;
 import com.gaviria.ormvsoptimizedsql.repo.projection.RateRowJpql;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -14,7 +14,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,12 +37,12 @@ public class ReportOptimizedService {
         LocalDateTime from = startDate.atStartOfDay();
         LocalDateTime to = endDate.atStartOfDay();
 
-        List<AggMovementDay> agg = movementRepository.aggregateByAccountCurrencyDay(companyId, from, to);
+        List<AggMovementDayView> agg = movementRepository.aggregateByAccountCurrencyDay(companyId, from, to);
         if (agg.isEmpty()) {
             return new CompanyMonthlySummaryDTO(companyId, year, month, List.of(), BigDecimal.ZERO);
         }
 
-        Set<String> currencies = agg.stream().map(AggMovementDay::currency).collect(Collectors.toSet());
+        Set<String> currencies = agg.stream().map(AggMovementDayView::getCurrency).collect(Collectors.toSet());
         currencies.remove("COP");
 
         Map<String, Map<LocalDate, BigDecimal>> rateMap = new HashMap<>();
@@ -64,15 +70,15 @@ public class ReportOptimizedService {
         Map<Long, Map<String, BigDecimal>> accOrig = new HashMap<>();
         Map<Long, Map<String, BigDecimal>> accCop = new HashMap<>();
 
-        for (AggMovementDay a : agg) {
-            Long accId = a.accountId();
-            String ccy = a.currency();
-            BigDecimal sumOriginal = a.totalAmount();
+        for (AggMovementDayView a : agg) {
+            Long accId = a.getAccountId();
+            String ccy = a.getCurrency();
+            BigDecimal sumOriginal = a.getTotalAmount();
 
             BigDecimal rate = BigDecimal.ONE;
             if (!"COP".equalsIgnoreCase(ccy)) {
                 rate = Optional.ofNullable(rateMap.get(ccy))
-                        .map(m -> m.get(a.day()))
+                        .map(m -> m.get(a.getDay()))
                         .orElse(BigDecimal.ONE);
             }
             BigDecimal sumCop = sumOriginal.multiply(rate);
