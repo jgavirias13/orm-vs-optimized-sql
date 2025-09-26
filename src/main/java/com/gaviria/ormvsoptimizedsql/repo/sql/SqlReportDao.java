@@ -17,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -41,48 +42,65 @@ public class SqlReportDao {
         LocalDateTime to = end.atStartOfDay();
 
         final String sqlPerAccountCurrency = """
-                WITH mv AS (
-                    SELECT m.company_account_id AS account_id,
-                           m.currency_code      AS currency,
-                           date_trunc('day', m.booked_at)::date AS d,
-                           m.amount             AS amount
-                    FROM movement m
-                    JOIN company_account ca ON ca.id = m.company_account_id
-                    WHERE ca.company_id = ?
-                      AND m.booked_at >= ? AND m.booked_at < ?
-                ),
-                fx AS (
+                SELECT account_id,
+                       currency,
+                       SUM(total_original) AS total_original,
+                       SUM(total_cop)      AS total_cop
+                FROM (
+                  -- 1) No-COP: join a fx
+                  SELECT m.company_account_id AS account_id,
+                         m.currency_code      AS currency,
+                         SUM(m.amount)        AS total_original,
+                         SUM(m.amount * fx.rate) AS total_cop
+                  FROM movement m
+                  JOIN company_account ca ON ca.id = m.company_account_id
+                  JOIN (
                     SELECT DISTINCT ON (er.currency_code, er.valid_date)
-                           er.currency_code,
-                           er.valid_date,
-                           er.rate
+                           er.currency_code, er.valid_date, er.rate
                     FROM exchange_rate er
-                    WHERE er.valid_date >= ? AND er.valid_date < ?
-                      AND er.currency_code <> 'COP'
+                    WHERE er.valid_date >= ?::date   -- (4) start-date
+                      AND er.valid_date <  ?::date   -- (5) end-date
                     ORDER BY er.currency_code, er.valid_date, er.version DESC
-                )
-                SELECT
-                    mv.account_id,
-                    mv.currency   AS currency,
-                    SUM(mv.amount) AS total_original,
-                    SUM(mv.amount * COALESCE(fx.rate, 1)) AS total_cop
-                FROM mv
-                LEFT JOIN fx
-                  ON fx.currency_code = mv.currency
-                 AND fx.valid_date    = mv.d
-                GROUP BY mv.account_id, mv.currency
-                ORDER BY mv.account_id, mv.currency
+                  ) fx
+                    ON fx.currency_code = m.currency_code
+                   AND fx.valid_date    = m.booked_at::date
+                  WHERE ca.company_id = ?            -- (1) companyId
+                    AND m.booked_at  >= ?            -- (2) from_ts
+                    AND m.booked_at  <  ?            -- (3) to_ts
+                    AND m.currency_code <> 'COP'
+                  GROUP BY m.company_account_id, m.currency_code
+                
+                  UNION ALL
+                
+                  -- 2) COP: sin join a fx
+                  SELECT m.company_account_id AS account_id,
+                         m.currency_code      AS currency,
+                         SUM(m.amount)        AS total_original,
+                         SUM(m.amount)        AS total_cop
+                  FROM movement m
+                  JOIN company_account ca ON ca.id = m.company_account_id
+                  WHERE ca.company_id = ?            -- (6) companyId
+                    AND m.booked_at  >= ?            -- (7) from_ts
+                    AND m.booked_at  <  ?            -- (8) to_ts
+                    AND m.currency_code = 'COP'
+                  GROUP BY m.company_account_id, m.currency_code
+                ) s
+                GROUP BY account_id, currency
+                ORDER BY account_id, currency
                 """;
 
         Map<Long, Map<String, BigDecimal>> byAccOrig = new LinkedHashMap<>();
         Map<Long, Map<String, BigDecimal>> byAccCop = new LinkedHashMap<>();
 
         Object[] params = {
+                Date.valueOf(start),
+                Date.valueOf(end),
                 companyId,
                 Timestamp.valueOf(from),
                 Timestamp.valueOf(to),
-                java.sql.Date.valueOf(start),
-                java.sql.Date.valueOf(end)
+                companyId,
+                Timestamp.valueOf(from),
+                Timestamp.valueOf(to)
         };
 
         jdbc.query(sqlPerAccountCurrency, rs -> {
