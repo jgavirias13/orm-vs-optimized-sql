@@ -14,7 +14,6 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
@@ -41,9 +40,6 @@ public class SqlReportDao {
         LocalDateTime from = start.atStartOfDay();
         LocalDateTime to = end.atStartOfDay();
 
-        // =========================
-        // 1) Totales por cuenta+moneda (original y COP)
-        // =========================
         final String sqlPerAccountCurrency = """
                 WITH mv AS (
                     SELECT m.company_account_id AS account_id,
@@ -78,10 +74,10 @@ public class SqlReportDao {
                 ORDER BY mv.account_id, mv.currency
                 """;
 
-        Map<Long, Map<String, BigDecimal>> byAccountCurrencyOriginal = new LinkedHashMap<>();
-        Map<Long, Map<String, BigDecimal>> byAccountCurrencyCOP = new LinkedHashMap<>();
+        Map<Long, Map<String, BigDecimal>> byAccOrig = new LinkedHashMap<>();
+        Map<Long, Map<String, BigDecimal>> byAccCop = new LinkedHashMap<>();
 
-        Object[] params1 = {
+        Object[] params = {
                 companyId,
                 Timestamp.valueOf(from),
                 Timestamp.valueOf(to),
@@ -89,82 +85,26 @@ public class SqlReportDao {
                 java.sql.Date.valueOf(end)
         };
 
-        RowCallbackHandler rch1 = rs -> {
+        jdbc.query(sqlPerAccountCurrency, rs -> {
             long accountId = rs.getLong("account_id");
             String currency = rs.getString("currency");
-            var totalOriginal = rs.getBigDecimal("total_original");
-            var totalCop = rs.getBigDecimal("total_cop");
+            BigDecimal totalOriginal = rs.getBigDecimal("total_original");
+            BigDecimal totalCop = rs.getBigDecimal("total_cop");
 
-            byAccountCurrencyOriginal
-                    .computeIfAbsent(accountId, k -> new LinkedHashMap<>())
+            byAccOrig.computeIfAbsent(accountId, k -> new LinkedHashMap<>())
                     .merge(currency, totalOriginal, BigDecimal::add);
 
-            byAccountCurrencyCOP
-                    .computeIfAbsent(accountId, k -> new LinkedHashMap<>())
+            byAccCop.computeIfAbsent(accountId, k -> new LinkedHashMap<>())
                     .merge(currency, totalCop, BigDecimal::add);
-        };
+        }, params);
 
-        jdbc.query(sqlPerAccountCurrency, rch1, params1);
-
-        // =========================
-        // 2) Totales por moneda (original y COP) para el bloque byCurrency
-        //    (podríamos derivarlo de lo anterior, pero así el SQL es simétrico y claro)
-        // =========================
-        final String sqlByCurrency = """
-                WITH mv AS (
-                    SELECT m.currency_code      AS currency,
-                           date_trunc('day', m.booked_at)::date AS d,
-                           m.amount
-                    FROM movement m
-                    JOIN company_account ca ON ca.id = m.company_account_id
-                    WHERE ca.company_id = ?
-                      AND m.booked_at >= ? AND m.booked_at < ?
-                ),
-                fx AS (
-                    SELECT DISTINCT ON (er.currency_code, er.valid_date)
-                           er.currency_code,
-                           er.valid_date,
-                           er.rate
-                    FROM exchange_rate er
-                    WHERE er.valid_date >= ? AND er.valid_date < ?
-                      AND er.currency_code <> 'COP'
-                    ORDER BY er.currency_code, er.valid_date, er.version DESC
-                )
-                SELECT
-                    mv.currency AS currency,
-                    SUM(mv.amount) AS total_original,
-                    SUM(mv.amount * COALESCE(fx.rate, 1)) AS total_cop
-                FROM mv
-                LEFT JOIN fx
-                  ON fx.currency_code = mv.currency
-                 AND fx.valid_date    = mv.d
-                GROUP BY mv.currency
-                ORDER BY mv.currency
-                """;
-
-        Map<String, BigDecimal> totalOriginalByCurrency = new LinkedHashMap<>();
-        Map<String, BigDecimal> totalCopByCurrency = new LinkedHashMap<>();
-
-        RowCallbackHandler rch2 = rs -> {
-            String currency = rs.getString("currency");
-            var totalOriginal = rs.getBigDecimal("total_original");
-            var totalCop = rs.getBigDecimal("total_cop");
-            totalOriginalByCurrency.merge(currency, totalOriginal, BigDecimal::add);
-            totalCopByCurrency.merge(currency, totalCop, BigDecimal::add);
-        };
-
-        jdbc.query(sqlByCurrency, rch2, params1);
-
-        // =========================
-        // 3) Construir DTOs
-        // =========================
         var accountSummaries = new ArrayList<AccountMonthlySummaryDTO>();
         BigDecimal companyTotalCop = BigDecimal.ZERO;
 
-        for (var entry : byAccountCurrencyOriginal.entrySet()) {
-            Long accountId = entry.getKey();
+        for (var entry : byAccOrig.entrySet()) {
+            Long accId = entry.getKey();
             Map<String, BigDecimal> origs = entry.getValue();
-            Map<String, BigDecimal> cops = byAccountCurrencyCOP.getOrDefault(accountId, Map.of());
+            Map<String, BigDecimal> cops = byAccCop.getOrDefault(accId, Map.of());
 
             var byCurrency = origs.keySet().stream()
                     .sorted()
@@ -179,29 +119,13 @@ public class SqlReportDao {
                     .map(CurrencyTotalDTO::totalCOP)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            accountSummaries.add(new AccountMonthlySummaryDTO(accountId, byCurrency, accTotal));
+            accountSummaries.add(new AccountMonthlySummaryDTO(accId, byCurrency, accTotal));
             companyTotalCop = companyTotalCop.add(accTotal);
         }
 
-        // por si no hubo movimientos, devolvemos estructura vacía coherente
         if (accountSummaries.isEmpty()) {
             return new CompanyMonthlySummaryDTO(companyId, year, month, List.of(), BigDecimal.ZERO);
         }
-
-        // =========================
-        // 4) byCurrency (para el DTO de salida)
-        // =========================
-        var byCurrencyList = totalOriginalByCurrency.keySet().stream()
-                .sorted()
-                .map(ccy -> new CurrencyTotalDTO(
-                        ccy,
-                        totalOriginalByCurrency.getOrDefault(ccy, BigDecimal.ZERO),
-                        totalCopByCurrency.getOrDefault(ccy, BigDecimal.ZERO)
-                ))
-                .toList();
-
-        // Nota: CompanyMonthlySummaryDTO no tenía 'byCurrency'; si quieres incluirlo,
-        // puedes hacerlo en la versión "consolidated"; aquí dejamos per-account + total.
 
         return new CompanyMonthlySummaryDTO(
                 companyId,
