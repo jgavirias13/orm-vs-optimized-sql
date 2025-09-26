@@ -1,5 +1,6 @@
 package com.gaviria.ormvsoptimizedsql.api;
 
+import com.gaviria.ormvsoptimizedsql.api.dto.CompanyConsolidatedSummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
@@ -48,5 +49,14 @@ public class ReportOptimizedController {
             @RequestParam(defaultValue = "100") int size
     ) {
         return service.declarationLinesOptimized(companyAccountId, year, month, page, size);
+    }
+
+    @GetMapping("/consolidated")
+    public CompanyConsolidatedSummaryDTO consolidatedOptimized(
+            @RequestParam Long companyId,
+            @RequestParam int year,
+            @RequestParam int month
+    ) {
+        return service.consolidatedMonthlySummaryOptimized(companyId, year, month);
     }
 }

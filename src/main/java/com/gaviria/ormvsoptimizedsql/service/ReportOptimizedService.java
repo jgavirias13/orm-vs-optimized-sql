@@ -1,6 +1,8 @@
 package com.gaviria.ormvsoptimizedsql.service;
 
+import com.gaviria.ormvsoptimizedsql.api.dto.AccountCopTotalDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.AccountMonthlySummaryDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.CompanyConsolidatedSummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
@@ -259,5 +261,89 @@ public class ReportOptimizedService {
         }).toList();
 
         return new PageImpl<>(content, pageable, pg.getTotalElements());
+    }
+
+    @Transactional(readOnly = true)
+    public CompanyConsolidatedSummaryDTO consolidatedMonthlySummaryOptimized(Long companyId, int year, int month) {
+        LocalDate start = LocalDate.of(year, month, 1);
+        LocalDate end = start.plusMonths(1);
+        LocalDateTime from = start.atStartOfDay();
+        LocalDateTime to = end.atStartOfDay();
+
+        var agg = movementRepository.aggregateByAccountCurrencyDay(companyId, from, to);
+        if (agg.isEmpty()) {
+            return new CompanyConsolidatedSummaryDTO(
+                    companyId, String.format("%04d-%02d", year, month),
+                    List.of(), List.of(), BigDecimal.ZERO
+            );
+        }
+
+        Set<String> currencies = agg.stream().map(AggMovementDayView::getCurrency).collect(Collectors.toSet());
+        currencies.remove("COP");
+
+        Map<String, Map<LocalDate, BigDecimal>> rateMap = new HashMap<>();
+        if (!currencies.isEmpty()) {
+            var rows = exchangeRateRepository.findRatesForRangeAndCurrencies(start, end, currencies);
+            Map<String, Map<LocalDate, RateRowJpql>> best = new HashMap<>();
+            for (var r : rows) {
+                best.computeIfAbsent(r.currency(), k -> new HashMap<>())
+                        .merge(r.day(), r, (a, b) -> a.version() >= b.version() ? a : b);
+            }
+            for (var e : best.entrySet()) {
+                Map<LocalDate, BigDecimal> perDay = new HashMap<>();
+                for (var d : e.getValue().entrySet()) {
+                    perDay.put(d.getKey(), d.getValue().rate());
+                }
+                rateMap.put(e.getKey(), perDay);
+            }
+        }
+
+        Map<Long, BigDecimal> perAccountCop = new HashMap<>();
+        Map<String, BigDecimal> totalsOriginal = new HashMap<>();
+        Map<String, BigDecimal> totalsCop = new HashMap<>();
+
+        for (var a : agg) {
+            String ccy = a.getCurrency();
+            BigDecimal originalSum = a.getTotalAmount();
+            LocalDate day = a.getDay();
+
+            BigDecimal rate = BigDecimal.ONE;
+            if (!"COP".equalsIgnoreCase(ccy)) {
+                rate = Optional.ofNullable(rateMap.get(ccy))
+                        .map(m -> m.get(day))
+                        .orElse(BigDecimal.ONE);
+            }
+            BigDecimal cop = originalSum.multiply(rate);
+
+            perAccountCop.merge(a.getAccountId(), cop, BigDecimal::add);
+            totalsOriginal.merge(ccy, originalSum, BigDecimal::add);
+            totalsCop.merge(ccy, cop, BigDecimal::add);
+        }
+        
+        var accounts = perAccountCop.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(e -> new AccountCopTotalDTO(e.getKey(), e.getValue()))
+                .toList();
+
+        var byCurrency = totalsOriginal.keySet().stream()
+                .sorted()
+                .map(ccy -> new CurrencyTotalDTO(
+                        ccy,
+                        totalsOriginal.getOrDefault(ccy, BigDecimal.ZERO),
+                        totalsCop.getOrDefault(ccy, BigDecimal.ZERO)
+                ))
+                .toList();
+
+        BigDecimal grandTotal = accounts.stream()
+                .map(AccountCopTotalDTO::totalCOP)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new CompanyConsolidatedSummaryDTO(
+                companyId,
+                String.format("%04d-%02d", year, month),
+                accounts,
+                byCurrency,
+                grandTotal
+        );
     }
 }
