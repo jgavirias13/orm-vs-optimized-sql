@@ -1,0 +1,62 @@
+package com.gaviria.ormvsoptimizedsql.api;
+
+import com.gaviria.ormvsoptimizedsql.api.dto.CompanyConsolidatedSummaryDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
+import com.gaviria.ormvsoptimizedsql.service.ReportSqlService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/report/sql")
+@RequiredArgsConstructor
+public class ReportSqlController {
+
+    private final ReportSqlService service;
+
+    @GetMapping("/summary")
+    public CompanyMonthlySummaryDTO summary(
+            @RequestParam Long companyId,
+            @RequestParam int year,
+            @RequestParam int month
+    ) {
+        return service.monthlySummary(companyId, year, month);
+    }
+
+    @GetMapping("/top-counterparties")
+    public List<TopCounterpartyDTO> topCounterparties(
+            @RequestParam Long companyId,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(defaultValue = "10") int topN
+    ) {
+        return service.topCounterparties(companyId, year, month, topN);
+    }
+
+    @GetMapping("/declaration-lines")
+    public Page<DeclarationLineDTO> declarationLines(
+            @RequestParam Long companyAccountId,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size
+    ) {
+        return service.declarationLines(companyAccountId, year, month, page, size);
+    }
+
+    @GetMapping("/consolidated")
+    public CompanyConsolidatedSummaryDTO consolidated(
+            @RequestParam Long companyId,
+            @RequestParam int year,
+            @RequestParam int month
+    ) {
+        return service.consolidated(companyId, year, month);
+    }
+}
