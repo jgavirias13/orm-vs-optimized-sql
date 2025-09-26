@@ -17,7 +17,7 @@ import java.util.List;
 
 @ActiveProfiles("test")
 @SpringBootTest(classes = { DatasourceProxyTestConfig.class })
-class UnoptimizedOrmBenchmarkTest {
+class UnoptimizedOrmSummaryBenchmarkTest {
 
     @Autowired
     ReportUnoptimizedService service;
