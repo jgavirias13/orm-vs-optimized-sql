@@ -1,5 +1,6 @@
 package com.gaviria.ormvsoptimizedsql.benchmark;
 
+import com.gaviria.ormvsoptimizedsql.benchmark.config.DatasourceProxyTestConfig;
 import com.gaviria.ormvsoptimizedsql.service.ReportOptimizedService;
 import net.ttddyy.dsproxy.QueryCountHolder;
 import org.junit.jupiter.api.Assertions;
@@ -11,7 +12,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.util.stream.Stream;
 
 @ActiveProfiles("test")
-@SpringBootTest
+@SpringBootTest(classes = { DatasourceProxyTestConfig.class })
 class OptimizedOrmConsolidatedBenchmarkTest {
 
     @Autowired

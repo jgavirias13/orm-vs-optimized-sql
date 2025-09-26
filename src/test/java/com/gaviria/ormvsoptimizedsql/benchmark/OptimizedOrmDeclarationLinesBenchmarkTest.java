@@ -2,6 +2,7 @@
 package com.gaviria.ormvsoptimizedsql.benchmark;
 
 import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
+import com.gaviria.ormvsoptimizedsql.benchmark.config.DatasourceProxyTestConfig;
 import com.gaviria.ormvsoptimizedsql.service.ReportOptimizedService;
 import net.ttddyy.dsproxy.QueryCountHolder;
 import org.junit.jupiter.api.Assertions;
@@ -16,7 +17,7 @@ import java.util.Comparator;
 import java.util.List;
 
 @ActiveProfiles("test")
-@SpringBootTest
+@SpringBootTest(classes = { DatasourceProxyTestConfig.class })
 class OptimizedOrmDeclarationLinesBenchmarkTest {
 
     @Autowired

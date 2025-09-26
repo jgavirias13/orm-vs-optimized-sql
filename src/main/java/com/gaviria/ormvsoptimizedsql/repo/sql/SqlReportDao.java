@@ -157,16 +157,81 @@ public class SqlReportDao {
     // =========================
     // B) Top Counterparties
     // =========================
-    public List<TopCounterpartyDTO> fetchTopCounterparties(Long companyId, int year, int month, int topN) throws DataAccessException {
-        // TODO SQL:
-        // WITH mv AS (...),
-        //      fx AS (...),
-        // SELECT cp.display_name, SUM(amount * rate) AS total_cop, COUNT(*) AS tx_count
-        // FROM mv JOIN ... GROUP BY cp.display_name ORDER BY total_cop DESC LIMIT :topN
+    public List<TopCounterpartyDTO> fetchTopCounterparties(Long companyId, int year, int month, int topN) {
+        LocalDate start = LocalDate.of(year, month, 1);
+        LocalDate end = start.plusMonths(1);
+        LocalDateTime from = start.atStartOfDay();
+        LocalDateTime to = end.atStartOfDay();
 
-        String sql = "/* TODO: fill SQL for scenario B */ SELECT 1";
+        final String sql = """
+                SELECT counterparty, SUM(total_cop) AS total_cop, SUM(tx_count) AS tx_count
+                FROM (
+                    -- 1) No-COP: join a fx
+                    SELECT cp.display_name AS counterparty,
+                           SUM(m.amount * fx.rate) AS total_cop,
+                           COUNT(*) AS tx_count
+                    FROM movement m
+                    JOIN company_account ca ON ca.id = m.company_account_id
+                    JOIN counterparty_account cpa ON cpa.id = m.counterparty_account_id
+                    JOIN counterparty cp ON cp.id = cpa.counterparty_id
+                    JOIN (
+                        SELECT DISTINCT ON (er.currency_code, er.valid_date)
+                               er.currency_code, er.valid_date, er.rate
+                        FROM exchange_rate er
+                        WHERE er.valid_date >= ?::date   -- (4) start-date
+                          AND er.valid_date <  ?::date   -- (5) end-date
+                        ORDER BY er.currency_code, er.valid_date, er.version DESC
+                    ) fx
+                      ON fx.currency_code = m.currency_code
+                     AND fx.valid_date    = m.booked_at::date
+                    WHERE ca.company_id = ?              -- (1) companyId
+                      AND m.booked_at  >= ?              -- (2) from_ts
+                      AND m.booked_at  <  ?              -- (3) to_ts
+                      AND m.currency_code <> 'COP'
+                    GROUP BY cp.display_name
+                
+                    UNION ALL
+                
+                    -- 2) COP: sin join a fx
+                    SELECT cp.display_name AS counterparty,
+                           SUM(m.amount) AS total_cop,
+                           COUNT(*) AS tx_count
+                    FROM movement m
+                    JOIN company_account ca ON ca.id = m.company_account_id
+                    JOIN counterparty_account cpa ON cpa.id = m.counterparty_account_id
+                    JOIN counterparty cp ON cp.id = cpa.counterparty_id
+                    WHERE ca.company_id = ?              -- (6) companyId
+                      AND m.booked_at  >= ?              -- (7) from_ts
+                      AND m.booked_at  <  ?              -- (8) to_ts
+                      AND m.currency_code = 'COP'
+                    GROUP BY cp.display_name
+                ) s
+                GROUP BY counterparty
+                ORDER BY total_cop DESC
+                LIMIT ?                                    -- (9) topN
+                """;
 
-        return List.of();
+        Object[] params = {
+                Date.valueOf(start),           // (4)
+                Date.valueOf(end),             // (5)
+                companyId,                     // (1)
+                Timestamp.valueOf(from),       // (2)
+                Timestamp.valueOf(to),         // (3)
+                companyId,                     // (6)
+                Timestamp.valueOf(from),       // (7)
+                Timestamp.valueOf(to),         // (8)
+                topN                           // (9)
+        };
+
+        List<TopCounterpartyDTO> out = new ArrayList<>();
+        jdbc.query(sql, rs -> {
+            String cp = rs.getString("counterparty");
+            BigDecimal totalCop = rs.getBigDecimal("total_cop");
+            long txCount = rs.getLong("tx_count");
+            out.add(new TopCounterpartyDTO(cp, totalCop, txCount));
+        }, params);
+
+        return out;
     }
 
     // =========================

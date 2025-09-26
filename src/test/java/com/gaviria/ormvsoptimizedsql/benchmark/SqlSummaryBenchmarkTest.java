@@ -1,6 +1,7 @@
 package com.gaviria.ormvsoptimizedsql.benchmark;
 
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
+import com.gaviria.ormvsoptimizedsql.benchmark.config.DatasourceProxyTestConfig;
 import com.gaviria.ormvsoptimizedsql.service.ReportSqlService;
 import net.ttddyy.dsproxy.QueryCount;
 import net.ttddyy.dsproxy.QueryCountHolder;
@@ -15,7 +16,7 @@ import java.util.Comparator;
 import java.util.List;
 
 @ActiveProfiles("test")
-@SpringBootTest
+@SpringBootTest(classes = { DatasourceProxyTestConfig.class })
 class SqlSummaryBenchmarkTest {
 
     @Autowired
