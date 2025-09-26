@@ -3,8 +3,10 @@ package com.gaviria.ormvsoptimizedsql.service;
 import com.gaviria.ormvsoptimizedsql.api.dto.AccountMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import com.gaviria.ormvsoptimizedsql.repo.ExchangeRateRepository;
 import com.gaviria.ormvsoptimizedsql.repo.MovementRepository;
+import com.gaviria.ormvsoptimizedsql.repo.projection.AggCounterpartyDayView;
 import com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDayView;
 import com.gaviria.ormvsoptimizedsql.repo.projection.RateRowJpql;
 import lombok.RequiredArgsConstructor;
@@ -119,5 +121,62 @@ public class ReportOptimizedService {
                 .toList();
 
         return new CompanyMonthlySummaryDTO(companyId, year, month, accounts, companyTotalCop);
+    }
+
+    public List<TopCounterpartyDTO> topCounterpartiesOptimized(Long companyId, int year, int month, int topN) {
+        LocalDate start = LocalDate.of(year, month, 1);
+        LocalDate end = start.plusMonths(1);
+        LocalDateTime from = start.atStartOfDay();
+        LocalDateTime to = end.atStartOfDay();
+
+        List<AggCounterpartyDayView> agg = movementRepository.aggregateByCounterpartyCurrencyDay(companyId, from, to);
+        if (agg.isEmpty()) return List.of();
+
+        Set<String> currencies = agg.stream().map(AggCounterpartyDayView::getCurrency).collect(Collectors.toSet());
+        currencies.remove("COP");
+
+        Map<String, Map<LocalDate, BigDecimal>> rateMap = new HashMap<>();
+        if (!currencies.isEmpty()) {
+            List<RateRowJpql> rows = exchangeRateRepository.findRatesForRangeAndCurrencies(start, end, currencies);
+            Map<String, Map<LocalDate, RateRowJpql>> best = new HashMap<>();
+            for (RateRowJpql r : rows) {
+                best.computeIfAbsent(r.currency(), k -> new HashMap<>())
+                        .merge(r.day(), r, (a, b) -> a.version() >= b.version() ? a : b);
+            }
+            for (var e : best.entrySet()) {
+                Map<LocalDate, BigDecimal> perDay = new HashMap<>();
+                for (var d : e.getValue().entrySet()) {
+                    perDay.put(d.getKey(), d.getValue().rate());
+                }
+                rateMap.put(e.getKey(), perDay);
+            }
+        }
+
+        Map<String, BigDecimal> totalCopByCp = new HashMap<>();
+        Map<String, Long> txByCp = new HashMap<>();
+
+        for (AggCounterpartyDayView a : agg) {
+            String cp = a.getCounterparty();
+            String ccy = a.getCurrency();
+            LocalDate day = a.getDay();
+            BigDecimal original = a.getTotalAmount();
+
+            BigDecimal rate = BigDecimal.ONE;
+            if (!"COP".equalsIgnoreCase(ccy)) {
+                rate = Optional.ofNullable(rateMap.get(ccy))
+                        .map(m -> m.get(day))
+                        .orElse(BigDecimal.ONE);
+            }
+            BigDecimal cop = original.multiply(rate);
+
+            totalCopByCp.merge(cp, cop, BigDecimal::add);
+            txByCp.merge(cp, a.getTxCount(), Long::sum);
+        }
+
+        return totalCopByCp.entrySet().stream()
+                .map(e -> new TopCounterpartyDTO(e.getKey(), e.getValue(), txByCp.getOrDefault(e.getKey(), 0L)))
+                .sorted(Comparator.comparing(TopCounterpartyDTO::totalCOP).reversed())
+                .limit(topN)
+                .toList();
     }
 }
