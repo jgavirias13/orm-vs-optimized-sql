@@ -3,13 +3,21 @@ package com.gaviria.ormvsoptimizedsql.service;
 import com.gaviria.ormvsoptimizedsql.api.dto.AccountMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import com.gaviria.ormvsoptimizedsql.repo.ExchangeRateRepository;
 import com.gaviria.ormvsoptimizedsql.repo.MovementRepository;
 import com.gaviria.ormvsoptimizedsql.repo.projection.AggCounterpartyDayView;
 import com.gaviria.ormvsoptimizedsql.repo.projection.AggMovementDayView;
+import com.gaviria.ormvsoptimizedsql.repo.projection.MovementLineView;
+import com.gaviria.ormvsoptimizedsql.repo.projection.MovementTagPairView;
 import com.gaviria.ormvsoptimizedsql.repo.projection.RateRowJpql;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -178,5 +187,77 @@ public class ReportOptimizedService {
                 .sorted(Comparator.comparing(TopCounterpartyDTO::totalCOP).reversed())
                 .limit(topN)
                 .toList();
+    }
+
+    public Page<DeclarationLineDTO> declarationLinesOptimized(
+            Long companyAccountId, int year, int month, int page, int size) {
+
+        LocalDate start = LocalDate.of(year, month, 1);
+        LocalDate end = start.plusMonths(1);
+        LocalDateTime from = start.atStartOfDay();
+        LocalDateTime to = end.atStartOfDay();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "bookedAt").and(Sort.by("id")));
+
+        Page<MovementLineView> pg = movementRepository.pageLinesForAccountAndPeriod(companyAccountId, from, to, pageable);
+        if (pg.isEmpty()) {
+            return Page.empty(pageable);
+        }
+
+        Set<String> currencies = pg.getContent().stream()
+                .map(MovementLineView::getCurrency)
+                .filter(ccy -> !"COP".equalsIgnoreCase(ccy))
+                .collect(Collectors.toSet());
+
+        Map<String, Map<LocalDate, BigDecimal>> rateMap = new HashMap<>();
+        if (!currencies.isEmpty()) {
+            List<RateRowJpql> rows = exchangeRateRepository.findRatesForRangeAndCurrencies(start, end, currencies);
+            Map<String, Map<LocalDate, RateRowJpql>> best = new HashMap<>();
+            for (RateRowJpql r : rows) {
+                best.computeIfAbsent(r.currency(), k -> new HashMap<>())
+                        .merge(r.day(), r, (a, b) -> a.version() >= b.version() ? a : b);
+            }
+            for (var e : best.entrySet()) {
+                Map<LocalDate, BigDecimal> perDay = new HashMap<>();
+                for (var d : e.getValue().entrySet()) {
+                    perDay.put(d.getKey(), d.getValue().rate());
+                }
+                rateMap.put(e.getKey(), perDay);
+            }
+        }
+
+        List<Long> ids = pg.getContent().stream().map(MovementLineView::getId).toList();
+        Map<Long, Set<String>> tagsByMovement = new HashMap<>();
+        if (!ids.isEmpty()) {
+            for (MovementTagPairView p : movementRepository.findTagsForMovements(ids)) {
+                tagsByMovement.computeIfAbsent(p.getMovementId(), k -> new LinkedHashSet<>()).add(p.getTagName());
+            }
+        }
+
+        List<DeclarationLineDTO> content = pg.getContent().stream().map(v -> {
+            LocalDate day = v.getBookedAt().toLocalDate();
+            String ccy = v.getCurrency();
+            BigDecimal original = v.getAmount();
+
+            BigDecimal rate = BigDecimal.ONE;
+            if (!"COP".equalsIgnoreCase(ccy)) {
+                rate = Optional.ofNullable(rateMap.get(ccy))
+                        .map(m -> m.get(day))
+                        .orElse(BigDecimal.ONE);
+            }
+            BigDecimal cop = original.multiply(rate);
+
+            return new DeclarationLineDTO(
+                    day,
+                    v.getCounterparty(),
+                    ccy,
+                    original,
+                    rate,
+                    cop,
+                    v.getDescription(),
+                    tagsByMovement.getOrDefault(v.getId(), Set.of())
+            );
+        }).toList();
+
+        return new PageImpl<>(content, pageable, pg.getTotalElements());
     }
 }

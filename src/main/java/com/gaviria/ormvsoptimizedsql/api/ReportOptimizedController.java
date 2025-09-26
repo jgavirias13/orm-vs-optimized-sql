@@ -1,9 +1,11 @@
 package com.gaviria.ormvsoptimizedsql.api;
 
 import com.gaviria.ormvsoptimizedsql.api.dto.CompanyMonthlySummaryDTO;
+import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import com.gaviria.ormvsoptimizedsql.service.ReportOptimizedService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -35,5 +37,16 @@ public class ReportOptimizedController {
             @RequestParam(defaultValue = "10") int topN
     ) {
         return service.topCounterpartiesOptimized(companyId, year, month, topN);
+    }
+
+    @GetMapping("/declaration-lines")
+    public Page<DeclarationLineDTO> declarationLinesOptimized(
+            @RequestParam Long companyAccountId,
+            @RequestParam int year,
+            @RequestParam int month,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size
+    ) {
+        return service.declarationLinesOptimized(companyAccountId, year, month, page, size);
     }
 }
