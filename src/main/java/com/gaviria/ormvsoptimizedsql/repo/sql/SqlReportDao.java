@@ -8,7 +8,6 @@ import com.gaviria.ormvsoptimizedsql.api.dto.CurrencyTotalDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.DeclarationLineDTO;
 import com.gaviria.ormvsoptimizedsql.api.dto.TopCounterpartyDTO;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -272,58 +271,51 @@ public class SqlReportDao {
         // -------- página con líneas + tags + tasa aplicada --------
         final String sql = """
                 WITH page AS (
-                    SELECT m.id
-                    FROM movement m
-                    WHERE m.company_account_id = ?
-                      AND m.booked_at >= ? AND m.booked_at < ?
-                    ORDER BY m.booked_at ASC, m.id ASC
-                    OFFSET ? LIMIT ?
-                ),
-                mv AS (
-                    SELECT m.id,
-                           m.booked_at,
-                           m.amount,
-                           m.currency_code,
-                           m.description,
-                           cpa.counterparty_id
-                    FROM movement m
-                    JOIN page p ON p.id = m.id
-                    JOIN counterparty_account cpa ON cpa.id = m.counterparty_account_id
+                  SELECT
+                      m.id,
+                      m.booked_at,
+                      m.amount,
+                      m.currency_code,
+                      m.description,
+                      cpa.counterparty_id
+                  FROM movement m
+                  JOIN counterparty_account cpa
+                    ON cpa.id = m.counterparty_account_id
+                  WHERE m.company_account_id = ?
+                    AND m.booked_at >= ?
+                    AND m.booked_at <  ?
+                  ORDER BY m.booked_at ASC, m.id ASC
+                  OFFSET ? LIMIT ?
                 ),
                 fx AS (
-                    SELECT DISTINCT ON (er.currency_code, er.valid_date)
-                           er.currency_code,
-                           er.valid_date,
-                           er.rate
-                    FROM exchange_rate er
-                    WHERE er.valid_date >= ?::date
-                      AND er.valid_date <  ?::date
-                    ORDER BY er.currency_code, er.valid_date, er.version DESC
+                  SELECT DISTINCT ON (er.currency_code, er.valid_date)
+                         er.currency_code,
+                         er.valid_date,
+                         er.rate
+                  FROM exchange_rate er
+                  WHERE er.valid_date >= ?::date
+                    AND er.valid_date <  ?::date
+                  ORDER BY er.currency_code, er.valid_date, er.version DESC
                 )
                 SELECT
-                    mv.booked_at::date                              AS day,
-                    cp.display_name                                 AS counterparty,
-                    mv.currency_code                                AS currency,
-                    mv.amount                                       AS original,
-                    COALESCE(
-                        CASE WHEN mv.currency_code = 'COP'
-                             THEN 1
-                             ELSE fx.rate
-                        END, 1
-                    )                                               AS rate,
-                    (mv.amount * COALESCE(CASE WHEN mv.currency_code = 'COP' THEN 1 ELSE fx.rate END, 1))
-                                                                    AS cop,
-                    mv.description                                  AS description,
+                    p.booked_at::date AS day,
+                    cp.display_name   AS counterparty,
+                    p.currency_code   AS currency,
+                    p.amount          AS original,
+                    COALESCE(CASE WHEN p.currency_code = 'COP' THEN 1 ELSE fx.rate END, 1) AS rate,
+                    p.amount * COALESCE(CASE WHEN p.currency_code = 'COP' THEN 1 ELSE fx.rate END, 1) AS cop,
+                    p.description     AS description,
                     COALESCE(array_agg(DISTINCT t.name) FILTER (WHERE t.name IS NOT NULL), '{}') AS tags
-                FROM mv
-                JOIN counterparty cp ON cp.id = mv.counterparty_id
+                FROM page p
+                JOIN counterparty cp ON cp.id = p.counterparty_id
                 LEFT JOIN fx
-                       ON fx.currency_code = mv.currency_code
-                      AND fx.valid_date    = mv.booked_at::date
-                LEFT JOIN movement_tags mt ON mt.movement_id = mv.id
+                       ON fx.currency_code = p.currency_code
+                      AND fx.valid_date    = p.booked_at::date
+                LEFT JOIN movement_tags mt ON mt.movement_id = p.id
                 LEFT JOIN movement_tag  t  ON t.id = mt.tag_id
-                GROUP BY mv.id, mv.booked_at, mv.amount, mv.currency_code, mv.description, cp.display_name, fx.rate
-                ORDER BY mv.booked_at ASC, mv.id ASC
+                GROUP BY
+                    p.id, p.booked_at, p.amount, p.currency_code, p.description, cp.display_name, fx.rate
+                ORDER BY p.booked_at ASC, p.id ASC;
                 """;
 
         Object[] params = {
@@ -368,21 +360,105 @@ public class SqlReportDao {
     // =========================
     // D) Consolidated Monthly Summary
     // =========================
-    public CompanyConsolidatedSummaryDTO fetchConsolidated(Long companyId, int year, int month) throws DataAccessException {
-        // TODO SQL:
-        // WITH mv AS (...), fx AS (...)
-        // 1) per-account total COP
-        // 2) per-currency total original + total COP
-        // 3) grand total
-        // Puedes hacer 2-3 SELECTs dentro de una misma llamada (ver abajo) o ejecutar 2-3 queries separadas.
+    public CompanyConsolidatedSummaryDTO fetchConsolidated(Long companyId, int year, int month) {
+        LocalDate start = LocalDate.of(year, month, 1);
+        LocalDate end   = start.plusMonths(1);
+        LocalDateTime from = start.atStartOfDay();
+        LocalDateTime to   = end.atStartOfDay();
 
-        String sqlAccounts = "/* TODO: accounts total COP */ SELECT 1";
-        String sqlCurrencies = "/* TODO: by currency original+cop */ SELECT 1";
-        String sqlGrandTotal = "/* TODO: grand total */ SELECT 0";
+        final String sql = """
+            WITH acc AS (
+              SELECT id
+              FROM company_account
+              WHERE company_id = ?                 -- (1) companyId
+            ),
+            mv AS (
+              SELECT m.company_account_id AS account_id,
+                     m.currency_code      AS currency,
+                     (m.booked_at)::date  AS d,
+                     SUM(m.amount)        AS amt
+              FROM movement m
+              WHERE EXISTS (SELECT 1 FROM acc a WHERE a.id = m.company_account_id)
+                AND m.booked_at >= ?               -- (2) from_ts
+                AND m.booked_at <  ?               -- (3) to_ts
+              GROUP BY m.company_account_id, m.currency_code, (m.booked_at)::date
+            ),
+            used_ccy AS (
+              SELECT DISTINCT currency
+              FROM mv
+              WHERE currency <> 'COP'
+            ),
+            fx AS (
+              SELECT DISTINCT ON (er.currency_code, er.valid_date)
+                     er.currency_code,
+                     er.valid_date,
+                     er.rate
+              FROM exchange_rate er
+              JOIN used_ccy u ON u.currency = er.currency_code
+              WHERE er.valid_date >= ?::date       -- (4) start_date
+                AND er.valid_date <  ?::date       -- (5) end_date
+              ORDER BY er.currency_code, er.valid_date, er.version DESC
+            )
+            SELECT
+              mv.account_id,
+              mv.currency,
+              mv.d,
+              mv.amt,
+              CASE WHEN mv.currency = 'COP' THEN 1
+                   ELSE COALESCE(fx.rate, 1)
+              END AS rate
+            FROM mv
+            LEFT JOIN fx
+                   ON fx.currency_code = mv.currency
+                  AND fx.valid_date    = mv.d
+            ORDER BY mv.account_id, mv.currency, mv.d
+            """;
 
-        List<AccountCopTotalDTO> accounts = List.of();
-        List<CurrencyTotalDTO> byCurrency = List.of();
+        Object[] params = {
+            companyId,                       // (1)
+            Timestamp.valueOf(from),         // (2)
+            Timestamp.valueOf(to),           // (3)
+            Date.valueOf(start),             // (4)
+            Date.valueOf(end)                // (5)
+        };
+
+        // Acumuladores a partir de un solo ResultSet
+        Map<Long, BigDecimal> totalCopByAccount = new LinkedHashMap<>();
+        Map<String, BigDecimal> totalOriginalByCurrency = new LinkedHashMap<>();
+        Map<String, BigDecimal> totalCopByCurrency      = new LinkedHashMap<>();
+
+        jdbc.query(sql, rs -> {
+            long accountId  = rs.getLong("account_id");
+            String currency = rs.getString("currency");
+            BigDecimal amt  = rs.getBigDecimal("amt");
+            BigDecimal rate = rs.getBigDecimal("rate");
+
+            // original por moneda
+            totalOriginalByCurrency.merge(currency, amt, BigDecimal::add);
+
+            // equivalente en COP
+            BigDecimal cop = (rate != null ? amt.multiply(rate) : amt);
+            totalCopByAccount.merge(accountId, cop, BigDecimal::add);
+            totalCopByCurrency.merge(currency, cop, BigDecimal::add);
+        }, params);
+
+        // Construcción de DTOs
+        List<AccountCopTotalDTO> accounts = new ArrayList<>(totalCopByAccount.size());
         BigDecimal grandTotal = BigDecimal.ZERO;
+        for (var e : totalCopByAccount.entrySet()) {
+            accounts.add(new AccountCopTotalDTO(e.getKey(), e.getValue()));
+            grandTotal = grandTotal.add(e.getValue());
+        }
+        accounts.sort((a, b) -> Long.compare(a.accountId(), b.accountId()));
+
+        List<CurrencyTotalDTO> byCurrency = new ArrayList<>(totalOriginalByCurrency.size());
+        for (var ccy : totalOriginalByCurrency.keySet().stream().sorted().toList()) {
+            byCurrency.add(new CurrencyTotalDTO(
+                    ccy,
+                    totalOriginalByCurrency.getOrDefault(ccy, BigDecimal.ZERO),
+                    totalCopByCurrency.getOrDefault(ccy, BigDecimal.ZERO)
+            ));
+        }
 
         return new CompanyConsolidatedSummaryDTO(
                 companyId,
